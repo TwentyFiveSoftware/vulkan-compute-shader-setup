@@ -15,7 +15,10 @@ link_directories(
 
 add_executable(
         VulkanComputeShaderSetup
-        main.cpp
+        src/main.cpp
+        src/vulkan.h
+        src/vulkan.cpp
+        src/structs.h
 )
 
 target_link_libraries(VulkanComputeShaderSetup vulkan-1.lib)
