@@ -3,6 +3,7 @@
 #include <set>
 #include <fstream>
 #include <utility>
+#include <chrono>
 
 Vulkan::Vulkan(Settings settings) : settings(std::move(settings)) {
     createInstance();
@@ -38,6 +39,9 @@ Vulkan::~Vulkan() {
 void Vulkan::run(Input input) {
     updateInputBuffer(input);
 
+    std::cout << "Starting compute shader execution..." << std::endl;
+    auto beginTime = std::chrono::steady_clock::now();
+
     vk::SubmitInfo submitInfo = {
             .commandBufferCount = 1,
             .pCommandBuffers = &commandBuffer
@@ -47,6 +51,11 @@ void Vulkan::run(Input input) {
 
     device.waitForFences(1, &fence, true, UINT64_MAX);
     device.resetFences(fence);
+
+    auto runTime = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - beginTime).count();
+
+    std::cout << "Compute shader execution took " << runTime << " ms" << std::endl << std::endl;
 }
 
 VKAPI_ATTR VkBool32 VKAPI_CALL debugMessageFunc(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
