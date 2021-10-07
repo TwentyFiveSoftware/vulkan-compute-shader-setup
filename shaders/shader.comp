@@ -1,13 +1,13 @@
 #version 450
 
+const uint GROUPS_PER_AXIS = 100;
+
 layout(binding = 0) uniform Input {
     uint samplesPerGroup;
-    uint groupsPerAxis;
 } inputBuffer;
 
 layout(binding = 1) buffer writeonly Output {
-    uint positiveSamples;
-    uint totalSamples;
+    uint positiveSamples[GROUPS_PER_AXIS * GROUPS_PER_AXIS];
 } outputBuffer;
 
 layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
@@ -18,7 +18,7 @@ void main() {
     for (uint x = 0; x < inputBuffer.samplesPerGroup; x++) {
         for (uint y = 0; y < inputBuffer.samplesPerGroup; y++) {
             const vec2 offset = vec2(x, y) / inputBuffer.samplesPerGroup;
-            vec2 pos = (gl_GlobalInvocationID.xy + offset) / (inputBuffer.groupsPerAxis * 16);
+            vec2 pos = (gl_GlobalInvocationID.xy + offset) / (GROUPS_PER_AXIS * 16);
 
             if (pos.x * pos.x + pos.y * pos.y <= 1) {
                 positiveSamples++;
@@ -26,6 +26,5 @@ void main() {
         }
     }
 
-    atomicAdd(outputBuffer.totalSamples, inputBuffer.samplesPerGroup * inputBuffer.samplesPerGroup);
-    atomicAdd(outputBuffer.positiveSamples, positiveSamples);
+    atomicAdd(outputBuffer.positiveSamples[gl_WorkGroupID.y * GROUPS_PER_AXIS + gl_WorkGroupID.x], positiveSamples);
 }

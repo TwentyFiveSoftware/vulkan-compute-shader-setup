@@ -2,14 +2,14 @@
 
 #include <string>
 
+const uint32_t GROUPS_PER_AXIS = 100;
+
 struct Input {
     uint32_t samplesPerGroup;
-    uint32_t groupsPerAxis;
 };
 
 struct Output {
-    uint32_t positiveSamples;
-    uint32_t totalSamples;
+    uint32_t positiveSamples[GROUPS_PER_AXIS * GROUPS_PER_AXIS];
 };
 
 struct Settings {
