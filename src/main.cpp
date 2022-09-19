@@ -16,12 +16,10 @@ int main() {
     };
 
 
-    Vulkan vulkan(settings);
-
     std::cout.imbue(std::locale(""));
 
+    Vulkan vulkan(settings);
     vulkan.run(input);
-
     Output output = vulkan.getOutput();
 
     uint64_t totalSamples = static_cast<uint64_t>(GROUPS_PER_AXIS) * static_cast<uint64_t>(input.samplesPerGroup) *

@@ -1,6 +1,0 @@
-[submodule "lib/glm"]
-	path = lib/glm
-	url = https://github.com/g-truc/glm
-[submodule "lib/Vulkan-Headers"]
-	path = lib/Vulkan-Headers
-	url = https://github.com/KhronosGroup/Vulkan-Headers

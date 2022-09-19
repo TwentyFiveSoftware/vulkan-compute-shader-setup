@@ -23,9 +23,6 @@ public:
     Output getOutput();
 
 private:
-    const std::vector<const char*> requiredInstanceExtensions = {};
-    const std::vector<const char*> requiredDeviceExtensions = {};
-
     Settings settings;
 
     vk::Instance instance;

@@ -1,6 +1,5 @@
 #include "vulkan.h"
 #include <iostream>
-#include <set>
 #include <fstream>
 #include <utility>
 #include <chrono>
@@ -47,9 +46,16 @@ void Vulkan::run(Input input) {
             .pCommandBuffers = &commandBuffer
     };
 
-    computeQueue.submit(1, &submitInfo, fence);
+    vk::Result submitResult = computeQueue.submit(1, &submitInfo, fence);
+    if (submitResult != vk::Result::eSuccess) {
+        throw std::runtime_error("Submit to compute queue resulted in an error!");
+    }
 
-    device.waitForFences(1, &fence, true, UINT64_MAX);
+    vk::Result fenceResult = device.waitForFences(1, &fence, true, UINT64_MAX);
+    if (fenceResult != vk::Result::eSuccess) {
+        throw std::runtime_error("Error while waiting for fence!");
+    }
+
     device.resetFences(fence);
 
     auto runTime = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -58,17 +64,13 @@ void Vulkan::run(Input input) {
     std::cout << "Compute shader execution took " << runTime << " ms" << std::endl << std::endl;
 }
 
-VKAPI_ATTR VkBool32 VKAPI_CALL debugMessageFunc(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
-                                                VkDebugUtilsMessageTypeFlagsEXT messageTypes,
-                                                VkDebugUtilsMessengerCallbackDataEXT const* pCallbackData,
-                                                void* pUserData) {
+uint32_t debugMessageFunc(
+        VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity, VkDebugUtilsMessageTypeFlagsEXT messageTypes,
+        VkDebugUtilsMessengerCallbackDataEXT const *pCallbackData, void *pUserData) {
     std::cout << "["
               << vk::to_string(static_cast<vk::DebugUtilsMessageSeverityFlagBitsEXT>(messageSeverity)) << " | "
-              << vk::to_string(static_cast<vk::DebugUtilsMessageTypeFlagsEXT>( messageTypes )) << "]:\n"
-              << "id      : " << pCallbackData->pMessageIdName << "\n"
-              << "message : " << pCallbackData->pMessage << "\n"
-              << std::endl;
-
+              << vk::to_string(static_cast<vk::DebugUtilsMessageTypeFlagsEXT>( messageTypes )) << " | "
+              << pCallbackData->pMessageIdName << "] " << pCallbackData->pMessage << std::endl;
     return false;
 }
 
@@ -78,11 +80,10 @@ void Vulkan::createInstance() {
             .applicationVersion = 1,
             .pEngineName = "compute-shader-setup",
             .engineVersion = 1,
-            .apiVersion = VK_API_VERSION_1_2
+            .apiVersion = VK_API_VERSION_1_3
     };
 
-    std::vector<const char*> enabledLayers =
-            {"VK_LAYER_KHRONOS_validation", "VK_LAYER_KHRONOS_synchronization2"};
+    std::vector<const char *> enabledLayers = {"VK_LAYER_KHRONOS_validation"};
 
     if (!settings.printDebugMessages) {
         enabledLayers.clear();
@@ -104,9 +105,7 @@ void Vulkan::createInstance() {
             .pNext = settings.printDebugMessages ? &debugMessengerInfo : nullptr,
             .pApplicationInfo = &applicationInfo,
             .enabledLayerCount = static_cast<uint32_t>(enabledLayers.size()),
-            .ppEnabledLayerNames = enabledLayers.data(),
-            .enabledExtensionCount = static_cast<uint32_t>(requiredInstanceExtensions.size()),
-            .ppEnabledExtensionNames = requiredInstanceExtensions.data(),
+            .ppEnabledLayerNames = enabledLayers.data()
     };
 
     instance = vk::createInstance(instanceCreateInfo);
@@ -119,21 +118,7 @@ void Vulkan::pickPhysicalDevice() {
         throw std::runtime_error("No GPU with Vulkan support found!");
     }
 
-    for (const vk::PhysicalDevice &d: physicalDevices) {
-        std::vector<vk::ExtensionProperties> availableExtensions = d.enumerateDeviceExtensionProperties();
-        std::set<std::string> requiredExtensions(requiredDeviceExtensions.begin(), requiredDeviceExtensions.end());
-
-        for (const vk::ExtensionProperties &extension: availableExtensions) {
-            requiredExtensions.erase(extension.extensionName);
-        }
-
-        if (requiredExtensions.empty()) {
-            physicalDevice = d;
-            return;
-        }
-    }
-
-    throw std::runtime_error("No GPU supporting all required features found!");
+    physicalDevice = physicalDevices.at(0);
 }
 
 void Vulkan::findQueueFamilies() {
@@ -162,18 +147,12 @@ void Vulkan::createLogicalDevice() {
             }
     };
 
-    vk::PhysicalDeviceFeatures deviceFeatures = {};
-
     vk::DeviceCreateInfo deviceCreateInfo = {
             .queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size()),
             .pQueueCreateInfos = queueCreateInfos.data(),
-            .enabledExtensionCount = static_cast<uint32_t>(requiredDeviceExtensions.size()),
-            .ppEnabledExtensionNames = requiredDeviceExtensions.data(),
-            .pEnabledFeatures = &deviceFeatures
     };
 
     device = physicalDevice.createDevice(deviceCreateInfo);
-
     computeQueue = device.getQueue(computeQueueFamily, 0);
 }
 
@@ -283,7 +262,7 @@ void Vulkan::createPipeline() {
 
     vk::ShaderModuleCreateInfo shaderModuleCreateInfo = {
             .codeSize = computeShaderCode.size(),
-            .pCode = reinterpret_cast<const uint32_t*>(computeShaderCode.data())
+            .pCode = reinterpret_cast<const uint32_t *>(computeShaderCode.data())
     };
 
     vk::ShaderModule computeShaderModule = device.createShaderModule(shaderModuleCreateInfo);
@@ -314,7 +293,7 @@ std::vector<char> Vulkan::readBinaryFile(const std::string &path) {
     std::vector<char> buffer(fileSize);
 
     file.seekg(0);
-    file.read(buffer.data(), fileSize);
+    file.read(buffer.data(), static_cast<std::streamsize>(fileSize));
 
     file.close();
 
@@ -330,7 +309,10 @@ void Vulkan::createCommandBuffer() {
             }).front();
 
     vk::CommandBufferBeginInfo beginInfo = {};
-    commandBuffer.begin(&beginInfo);
+    vk::Result result = commandBuffer.begin(&beginInfo);
+    if (result != vk::Result::eSuccess) {
+        throw std::runtime_error("Error while recording command buffer!");
+    }
 
     commandBuffer.bindPipeline(vk::PipelineBindPoint::eCompute, pipeline);
 
@@ -388,7 +370,6 @@ VulkanBuffer Vulkan::createBuffer(const vk::DeviceSize &size, const vk::Flags<vk
 void Vulkan::destroyBuffer(const VulkanBuffer &buffer) const {
     device.destroyBuffer(buffer.buffer);
     device.freeMemory(buffer.memory);
-
 }
 
 void Vulkan::executeSingleTimeCommand(const std::function<void(const vk::CommandBuffer &singleTimeCommandBuffer)> &c) {
@@ -403,7 +384,10 @@ void Vulkan::executeSingleTimeCommand(const std::function<void(const vk::Command
             .flags = vk::CommandBufferUsageFlagBits::eOneTimeSubmit
     };
 
-    singleTimeCommandBuffer.begin(&beginInfo);
+    vk::Result beginResult = singleTimeCommandBuffer.begin(&beginInfo);
+    if (beginResult != vk::Result::eSuccess) {
+        throw std::runtime_error("Error while recording single time command buffer!");
+    }
 
     c(singleTimeCommandBuffer);
 
@@ -415,8 +399,16 @@ void Vulkan::executeSingleTimeCommand(const std::function<void(const vk::Command
     };
 
     vk::Fence f = device.createFence({});
-    computeQueue.submit(1, &submitInfo, f);
-    device.waitForFences(1, &f, true, UINT64_MAX);
+
+    vk::Result submitResult = computeQueue.submit(1, &submitInfo, f);
+    if (submitResult != vk::Result::eSuccess) {
+        throw std::runtime_error("Submit to compute queue resulted in an error!");
+    }
+
+    vk::Result fenceResult = device.waitForFences(1, &f, true, UINT64_MAX);
+    if (fenceResult != vk::Result::eSuccess) {
+        throw std::runtime_error("Error while waiting for fence!");
+    }
 
     device.destroyFence(f);
     device.freeCommandBuffers(commandPool, singleTimeCommandBuffer);
@@ -433,24 +425,16 @@ void Vulkan::createInputOutputBuffers() {
 }
 
 void Vulkan::updateInputBuffer(const Input &input) {
-    VulkanBuffer stagingBuffer = createBuffer(sizeof(Input),
-                                              vk::BufferUsageFlagBits::eTransferSrc,
-                                              vk::MemoryPropertyFlagBits::eHostVisible |
-                                              vk::MemoryPropertyFlagBits::eHostCoherent);
+    VulkanBuffer stagingBuffer = createBuffer(
+            sizeof(Input), vk::BufferUsageFlagBits::eTransferSrc,
+            vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
 
-    void* data = device.mapMemory(stagingBuffer.memory, 0, sizeof(Input));
+    void *data = device.mapMemory(stagingBuffer.memory, 0, sizeof(Input));
     memcpy(data, &input, sizeof(Input));
     device.unmapMemory(stagingBuffer.memory);
 
     executeSingleTimeCommand([&](const vk::CommandBuffer &singleTimeCommandBuffer) {
-        std::vector<vk::BufferCopy> bufferCopyInfo = {
-                {
-                        .srcOffset = 0,
-                        .dstOffset = 0,
-                        .size = sizeof(Input)
-                }
-        };
-
+        std::vector<vk::BufferCopy> bufferCopyInfo = {{.srcOffset = 0, .dstOffset = 0, .size = sizeof(Input)}};
         singleTimeCommandBuffer.copyBuffer(stagingBuffer.buffer, inputBuffer.buffer, bufferCopyInfo);
     });
 
@@ -458,26 +442,18 @@ void Vulkan::updateInputBuffer(const Input &input) {
 }
 
 Output Vulkan::getOutput() {
-    VulkanBuffer hostBuffer = createBuffer(sizeof(Output),
-                                           vk::BufferUsageFlagBits::eTransferDst,
-                                           vk::MemoryPropertyFlagBits::eHostVisible |
-                                           vk::MemoryPropertyFlagBits::eHostCoherent);
+    VulkanBuffer hostBuffer = createBuffer(
+            sizeof(Output), vk::BufferUsageFlagBits::eTransferDst,
+            vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
 
     executeSingleTimeCommand([&](const vk::CommandBuffer &singleTimeCommandBuffer) {
-        std::vector<vk::BufferCopy> bufferCopyInfo = {
-                {
-                        .srcOffset = 0,
-                        .dstOffset = 0,
-                        .size = sizeof(Output)
-                }
-        };
-
+        std::vector<vk::BufferCopy> bufferCopyInfo = {{.srcOffset = 0, .dstOffset = 0, .size = sizeof(Output)}};
         singleTimeCommandBuffer.copyBuffer(outputBuffer.buffer, hostBuffer.buffer, bufferCopyInfo);
     });
 
-    Output output;
+    Output output{};
 
-    void* data = device.mapMemory(hostBuffer.memory, 0, sizeof(Output));
+    void *data = device.mapMemory(hostBuffer.memory, 0, sizeof(Output));
     memcpy(&output, data, sizeof(Output));
     device.unmapMemory(hostBuffer.memory);
 
